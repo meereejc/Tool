@@ -98,6 +98,23 @@ describe("createScanSummaryStore", () => {
     });
   });
 
+  it("passes the current scan input through to the scan command", async () => {
+    const scanDirectories = vi
+      .fn()
+      .mockResolvedValue(createScanResult({ configuredCount: 1, pendingCount: 0 }));
+    const store = createScanSummaryStore({
+      scanDirectories,
+    });
+
+    await store.scan({
+      paths: ["/Users/mc/Documents/3dgs/3dgsYouHua"],
+    });
+
+    expect(scanDirectories).toHaveBeenCalledWith({
+      paths: ["/Users/mc/Documents/3dgs/3dgsYouHua"],
+    });
+  });
+
   it("keeps the last successful counts when a later scan fails", async () => {
     const store = createScanSummaryStore({
       scanDirectories: vi

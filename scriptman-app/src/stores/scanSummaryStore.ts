@@ -12,18 +12,23 @@ export interface ScanSummaryState {
   error: string | null;
 }
 
+export interface ScanSummaryInput {
+  paths?: string[];
+  looseMode?: boolean;
+}
+
 interface ScanSummaryStoreDeps {
-  scanDirectories: () => Promise<ScanResult>;
+  scanDirectories: (input?: ScanSummaryInput) => Promise<ScanResult>;
 }
 
 export interface ScanSummaryStore {
   getState: () => ScanSummaryState;
   subscribe: (listener: () => void) => () => void;
-  scan: () => Promise<void>;
+  scan: (input?: ScanSummaryInput) => Promise<void>;
 }
 
 const defaultDeps: ScanSummaryStoreDeps = {
-  scanDirectories: () => scanDirectories(),
+  scanDirectories: (input) => scanDirectories(input),
 };
 
 function createInitialState(): ScanSummaryState {
@@ -61,14 +66,14 @@ export function createScanSummaryStore(
         listeners.delete(listener);
       };
     },
-    async scan() {
+    async scan(input) {
       setState({
         status: "scanning",
         error: null,
       });
 
       try {
-        const result = await deps.scanDirectories();
+        const result = await deps.scanDirectories(input);
 
         setState({
           status: "ready",

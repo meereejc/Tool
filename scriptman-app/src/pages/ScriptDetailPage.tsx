@@ -127,6 +127,7 @@ function normalizeDependencyList(value: string): string[] {
 interface ScriptDetailPageProps {
   script: ScriptAsset;
   defaultCwd?: string;
+  compact?: boolean;
   deps?: ScriptDetailPageDeps;
   onMetaSaved?: () => void | Promise<void>;
 }
@@ -134,6 +135,7 @@ interface ScriptDetailPageProps {
 export default function ScriptDetailPage({
   script,
   defaultCwd,
+  compact = false,
   deps = defaultDeps,
   onMetaSaved,
 }: ScriptDetailPageProps) {
@@ -368,49 +370,53 @@ export default function ScriptDetailPage({
   return (
     <div className="detail-layout">
       <section className="detail-card">
-        <p className="eyebrow">Script detail</p>
-        <div className="detail-header">
-          <div className="detail-heading-copy">
-            <h2>{title}</h2>
-            <p className="message">{description}</p>
-          </div>
-          <EnvBadge envStatus={envStatus} loading={envLoading} />
-        </div>
+        {!compact ? (
+          <>
+            <p className="eyebrow">Script detail</p>
+            <div className="detail-header">
+              <div className="detail-heading-copy">
+                <h2>{title}</h2>
+                <p className="message">{description}</p>
+              </div>
+              <EnvBadge envStatus={envStatus} loading={envLoading} />
+            </div>
 
-        <div className="detail-meta-grid">
-          <div>
-            <span className="detail-meta-label">Path</span>
-            <code>{script.filePath}</code>
-          </div>
-          <div>
-            <span className="detail-meta-label">Language</span>
-            <span>{script.language}</span>
-          </div>
-          <div>
-            <span className="detail-meta-label">Status</span>
-            <span>{script.status}</span>
-          </div>
-          <div>
-            <span className="detail-meta-label">Working directory</span>
-            <span>{defaultCwd ?? "Script directory"}</span>
-          </div>
-          <div>
-            <span className="detail-meta-label">Category</span>
-            <span>{category}</span>
-          </div>
-          <div>
-            <span className="detail-meta-label">Platform</span>
-            <span>{platform}</span>
-          </div>
-          <div>
-            <span className="detail-meta-label">Runtime</span>
-            <span>{runtime}</span>
-          </div>
-          <div>
-            <span className="detail-meta-label">Dependencies</span>
-            <span>{dependencies}</span>
-          </div>
-        </div>
+            <div className="detail-meta-grid">
+              <div>
+                <span className="detail-meta-label">Path</span>
+                <code>{script.filePath}</code>
+              </div>
+              <div>
+                <span className="detail-meta-label">Language</span>
+                <span>{script.language}</span>
+              </div>
+              <div>
+                <span className="detail-meta-label">Status</span>
+                <span>{script.status}</span>
+              </div>
+              <div>
+                <span className="detail-meta-label">Working directory</span>
+                <span>{defaultCwd ?? "Script directory"}</span>
+              </div>
+              <div>
+                <span className="detail-meta-label">Category</span>
+                <span>{category}</span>
+              </div>
+              <div>
+                <span className="detail-meta-label">Platform</span>
+                <span>{platform}</span>
+              </div>
+              <div>
+                <span className="detail-meta-label">Runtime</span>
+                <span>{runtime}</span>
+              </div>
+              <div>
+                <span className="detail-meta-label">Dependencies</span>
+                <span>{dependencies}</span>
+              </div>
+            </div>
+          </>
+        ) : null}
 
         {script.meta?.inputHint ? (
           <p className="io-hint io-hint-input">{script.meta.inputHint}</p>

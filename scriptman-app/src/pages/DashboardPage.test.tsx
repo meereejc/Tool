@@ -66,7 +66,7 @@ function createDetailDeps(): ScriptDetailPageDeps {
 }
 
 describe("DashboardPage", () => {
-  it("renders the workbench navigation, workspace, and inspector shell", () => {
+  it("renders the topbar, inventory table, and watch paths", () => {
     const store = createScanSummaryStore({
       scanDirectories: async () => createScanResult(0, 0),
     });
@@ -80,9 +80,10 @@ describe("DashboardPage", () => {
     );
 
     expect(screen.getByText("ScriptMan")).toBeInTheDocument();
-    expect(screen.getByLabelText("Workbench navigation")).toBeInTheDocument();
-    expect(screen.getByLabelText("Script workspace")).toBeInTheDocument();
-    expect(screen.getByLabelText("Script inspector")).toBeInTheDocument();
+    expect(screen.getByLabelText("Workbench topbar")).toBeInTheDocument();
+    expect(
+      screen.getByRole("table", { name: /script inventory table/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows the manual scan summary and the saved watch paths", () => {
@@ -104,7 +105,8 @@ describe("DashboardPage", () => {
       screen.getByRole("button", { name: /start scan/i }),
     ).toBeInTheDocument();
     expect(screen.getByText("Configured")).toBeInTheDocument();
-    expect(screen.getByText("Pending metadata")).toBeInTheDocument();
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(within(summary).getByText("Watch paths")).toBeInTheDocument();
     expect(within(summary).getAllByText("0")).toHaveLength(2);
     expect(screen.getByText("/scripts/a")).toBeInTheDocument();
     expect(screen.getByText("/scripts/b")).toBeInTheDocument();
@@ -147,6 +149,30 @@ describe("DashboardPage", () => {
     expect(within(summary).getByText("1")).toBeInTheDocument();
   });
 
+  it("scans with the current dashboard watch paths without requiring a prior save", async () => {
+    const user = userEvent.setup();
+    const scanDirectories = vi
+      .fn()
+      .mockResolvedValue(createScanResult(1, 0));
+    const store = createScanSummaryStore({
+      scanDirectories,
+    });
+
+    render(
+      <DashboardPage
+        watchPaths={["/Users/mc/Documents/3dgs/3dgsYouHua"]}
+        detailDeps={createDetailDeps()}
+        scanStore={store}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /start scan/i }));
+
+    expect(scanDirectories).toHaveBeenCalledWith({
+      paths: ["/Users/mc/Documents/3dgs/3dgsYouHua"],
+    });
+  });
+
   it("shows scanned script lists and opens the first configured script in the detail view", async () => {
     const user = userEvent.setup();
     const store = createScanSummaryStore({
@@ -184,12 +210,20 @@ describe("DashboardPage", () => {
 
     await user.click(screen.getByRole("button", { name: /start scan/i }));
 
-    expect(await screen.findByText("Configured scripts")).toBeInTheDocument();
-    expect(screen.getByText("Pending metadata scripts")).toBeInTheDocument();
-    expect(screen.getAllByText("Image Resize")).toHaveLength(2);
+    const table = await screen.findByRole("table", {
+      name: /script inventory table/i,
+    });
+
+    expect(within(table).getByRole("columnheader", { name: "分类" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "脚本名" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "路径" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "语言" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "状态" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "详情" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "操作" })).toBeInTheDocument();
+    expect(screen.getByText("Image Resize")).toBeInTheDocument();
     expect(screen.getByText("pending-task.py")).toBeInTheDocument();
-    expect(screen.getAllByText("Resize source images.")).toHaveLength(2);
-    expect(screen.getByText("/workspace")).toBeInTheDocument();
+    expect(screen.getByText("Resize source images.")).toBeInTheDocument();
   });
 
   it("lets the user manage saved watch paths after onboarding", async () => {
@@ -261,25 +295,18 @@ describe("DashboardPage", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /start scan/i }));
+    const table = screen.getByRole("table", { name: /script inventory table/i });
 
     await user.type(screen.getByLabelText(/filter scripts/i), "beta");
-    const configuredSection = screen
-      .getByRole("heading", { name: /configured scripts/i })
-      .closest("section");
 
-    expect(configuredSection).not.toBeNull();
-    expect(
-      within(configuredSection as HTMLElement).getByText("Beta Script"),
-    ).toBeInTheDocument();
-    expect(
-      within(configuredSection as HTMLElement).queryByText("Alpha Script"),
-    ).not.toBeInTheDocument();
+    expect(within(table).getByText("Beta Script")).toBeInTheDocument();
+    expect(within(table).queryByText("Alpha Script")).not.toBeInTheDocument();
 
     await user.clear(screen.getByLabelText(/filter scripts/i));
     await user.selectOptions(screen.getByLabelText(/sort scripts/i), "name");
 
-    expect(
-      within(configuredSection as HTMLElement).getAllByRole("button")[0],
-    ).toHaveTextContent("Alpha Script");
+    const rows = within(table).getAllByRole("row");
+
+    expect(rows[1]).toHaveTextContent("Alpha Script");
   });
 });
