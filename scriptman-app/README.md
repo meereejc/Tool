@@ -1,5 +1,7 @@
 # ScriptMan
 
+[简体中文说明](README.zh-CN.md)
+
 ScriptMan is a lightweight local-first script manager built with Tauri 2 +
 React + TypeScript. The project is intentionally scoped to one main workflow:
 configure local script directories, scan executable scripts, understand them
