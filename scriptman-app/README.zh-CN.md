@@ -70,6 +70,20 @@ scriptman-app/
 
 ## 开发命令
 
+如果你在仓库根目录 `/Users/mc/Documents/3dgs/git`，现在可以直接用：
+
+```bash
+npm run dev
+```
+
+这条命令会自动安装 `scriptman-app` 依赖并启动完整的 Tauri 开发流程。
+
+如果你只想启动前端开发服务器，可以在仓库根目录运行：
+
+```bash
+npm run dev:web
+```
+
 先进入项目目录：
 
 ```bash

@@ -1,0 +1,11 @@
+{
+  "name": "tool-root",
+  "private": true,
+  "scripts": {
+    "setup": "npm --prefix scriptman-app install",
+    "dev": "npm --prefix scriptman-app install && npm --prefix scriptman-app run tauri -- dev",
+    "dev:web": "npm --prefix scriptman-app install && npm --prefix scriptman-app run dev",
+    "build": "npm --prefix scriptman-app install && npm --prefix scriptman-app run build",
+    "test": "npm --prefix scriptman-app install && npm --prefix scriptman-app run test"
+  }
+}

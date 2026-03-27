@@ -24,6 +24,22 @@ Explicitly out of the current mainline:
 
 ## Development
 
+If you are at the repository root `/Users/mc/Documents/3dgs/git`, you can now
+start the full app with:
+
+```bash
+npm run dev
+```
+
+This installs the `scriptman-app` dependencies and starts the Tauri development
+flow.
+
+If you only want the frontend dev server from the repository root, run:
+
+```bash
+npm run dev:web
+```
+
 - Install dependencies:
   - `npm install`
 - Run the frontend only:
