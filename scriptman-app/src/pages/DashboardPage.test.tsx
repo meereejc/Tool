@@ -4,11 +4,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createScanSummaryStore } from "../stores/scanSummaryStore";
 import type { ScanResult, ScriptAsset } from "../types/script";
-import type { ScriptDetailPageDeps } from "./ScriptDetailPage";
+import {
+  __resetScriptDetailEnvCacheForTests,
+  type ScriptDetailPageDeps,
+} from "./ScriptDetailPage";
 import DashboardPage from "./DashboardPage";
 
 afterEach(() => {
   cleanup();
+  __resetScriptDetailEnvCacheForTests();
 });
 
 function createScriptAsset(
@@ -173,7 +177,7 @@ describe("DashboardPage", () => {
     });
   });
 
-  it("shows scanned script lists and opens the first configured script in the detail view", async () => {
+  it("shows scanned script rows after a manual scan", async () => {
     const user = userEvent.setup();
     const store = createScanSummaryStore({
       scanDirectories: async () => ({
@@ -226,6 +230,56 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Resize source images.")).toBeInTheDocument();
   });
 
+  it("toggles the inline detail row when the same script row is clicked twice", async () => {
+    const user = userEvent.setup();
+    const store = createScanSummaryStore({
+      scanDirectories: async () => ({
+        configuredScripts: [
+          createScriptAsset("Image Resize", {
+            meta: {
+              name: "Image Resize",
+              desc: "Resize source images.",
+              deps: [],
+              params: [],
+            },
+          }),
+        ],
+        pendingScripts: [],
+        ignoredCount: 0,
+        errors: [],
+      }),
+    });
+
+    render(
+      <DashboardPage
+        watchPaths={["/scripts/a"]}
+        defaultCwd="/workspace"
+        detailDeps={createDetailDeps()}
+        scanStore={store}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /start scan/i }));
+
+    expect(
+      screen.queryByRole("button", { name: /run script/i }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Image Resize"));
+
+    expect(
+      await screen.findByRole("button", { name: /run script/i }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByText("Image Resize"));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /run script/i }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("lets the user manage saved watch paths after onboarding", async () => {
     const user = userEvent.setup();
     const onPickDirectories = vi.fn().mockResolvedValue(undefined);
@@ -254,7 +308,7 @@ describe("DashboardPage", () => {
     expect(onSaveWatchPaths).toHaveBeenCalledTimes(1);
   });
 
-  it("filters and sorts scripts from the workbench controls", async () => {
+  it("filters scripts and supports the expanded pure sort options", async () => {
     const user = userEvent.setup();
     const store = createScanSummaryStore({
       scanDirectories: async () => ({
@@ -265,22 +319,37 @@ describe("DashboardPage", () => {
             meta: {
               name: "Beta Script",
               desc: "Beta task",
+              category: "utility",
               deps: [],
               params: [],
             },
           }),
-          createScriptAsset("alpha-script", {
-            fileName: "alpha.py",
-            filePath: "/tmp/alpha/alpha.py",
+          createScriptAsset("gamma-script", {
+            fileName: "gamma.py",
+            filePath: "/tmp/gamma/gamma.py",
             meta: {
-              name: "Alpha Script",
-              desc: "Alpha task",
+              name: "Gamma Script",
+              desc: "Gamma task",
+              category: "archive",
               deps: [],
               params: [],
             },
           }),
         ],
-        pendingScripts: [],
+        pendingScripts: [
+          createScriptAsset("alpha-script", {
+            fileName: "alpha.py",
+            filePath: "/tmp/alpha/alpha.py",
+            status: "PendingMeta",
+            meta: {
+              name: "Alpha Script",
+              desc: "Alpha task",
+              category: "archive",
+              deps: [],
+              params: [],
+            },
+          }),
+        ],
         ignoredCount: 0,
         errors: [],
       }),
@@ -300,13 +369,101 @@ describe("DashboardPage", () => {
     await user.type(screen.getByLabelText(/filter scripts/i), "beta");
 
     expect(within(table).getByText("Beta Script")).toBeInTheDocument();
-    expect(within(table).queryByText("Alpha Script")).not.toBeInTheDocument();
+    expect(within(table).queryByText("Gamma Script")).not.toBeInTheDocument();
 
     await user.clear(screen.getByLabelText(/filter scripts/i));
-    await user.selectOptions(screen.getByLabelText(/sort scripts/i), "name");
+    const sortSelect = screen.getByLabelText(/sort scripts/i);
+
+    expect(
+      within(sortSelect).getByRole("option", { name: "Category" }),
+    ).toBeInTheDocument();
+    expect(
+      within(sortSelect).getByRole("option", { name: "Status" }),
+    ).toBeInTheDocument();
+
+    await user.selectOptions(sortSelect, "category");
 
     const rows = within(table).getAllByRole("row");
 
     expect(rows[1]).toHaveTextContent("Alpha Script");
+    expect(rows[2]).toHaveTextContent("Gamma Script");
+    expect(rows[3]).toHaveTextContent("Beta Script");
+
+    await user.selectOptions(sortSelect, "status");
+
+    const statusRows = within(table).getAllByRole("row");
+
+    expect(statusRows[1]).toHaveTextContent("Beta Script");
+    expect(statusRows[2]).toHaveTextContent("Gamma Script");
+    expect(statusRows[3]).toHaveTextContent("Alpha Script");
+  });
+
+  it("reuses the previous environment check when reopening the same script detail", async () => {
+    const user = userEvent.setup();
+    const checkScriptEnv = vi.fn().mockResolvedValue({
+      ok: true,
+      permissionOk: true,
+      runtimeOk: true,
+      depsOk: true,
+      missingItems: [],
+      message: "Ready to run.",
+    });
+    const store = createScanSummaryStore({
+      scanDirectories: async () => ({
+        configuredScripts: [
+          createScriptAsset("perf-script", {
+            filePath: "/tmp/perf-script.py",
+            fileName: "perf-script.py",
+            meta: {
+              name: "Perf Script",
+              desc: "Used for reopen performance.",
+              deps: [],
+              params: [],
+            },
+          }),
+        ],
+        pendingScripts: [],
+        ignoredCount: 0,
+        errors: [],
+      }),
+    });
+
+    render(
+      <DashboardPage
+        watchPaths={["/scripts/a"]}
+        detailDeps={{
+          checkScriptEnv,
+          suggestEnvSetupCommands: vi.fn().mockResolvedValue([]),
+          saveScriptMeta: vi.fn().mockResolvedValue({ saved: true }),
+          runScript: vi.fn().mockResolvedValue({
+            executionId: "exec-1",
+            started: true,
+          }),
+          stopScript: vi.fn().mockResolvedValue({ stopped: true }),
+          subscribeToExecutionEvents: vi.fn().mockResolvedValue(() => {}),
+        }}
+        scanStore={store}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /start scan/i }));
+    await user.click(screen.getByText("Perf Script"));
+
+    await waitFor(() => {
+      expect(checkScriptEnv).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getByText("Perf Script"));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /run script/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Perf Script"));
+    await screen.findByRole("button", { name: /run script/i });
+
+    expect(checkScriptEnv).toHaveBeenCalledTimes(1);
   });
 });

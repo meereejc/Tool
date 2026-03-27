@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -8,11 +8,14 @@ import type {
   RunScriptData,
   ScriptAsset,
 } from "../types/script";
-import ScriptDetailPage from "./ScriptDetailPage";
+import ScriptDetailPage, {
+  __resetScriptDetailEnvCacheForTests,
+} from "./ScriptDetailPage";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  __resetScriptDetailEnvCacheForTests();
 });
 
 function createScriptAsset(): ScriptAsset {
@@ -143,6 +146,56 @@ describe("ScriptDetailPage", () => {
       missingItems: ["ffmpeg"],
     });
     expect(await screen.findByText("Install ffmpeg")).toBeInTheDocument();
+  });
+
+  it("uses a compact inline layout and groups install suggestions into one list container", async () => {
+    const checkScriptEnv = vi
+      .fn<() => Promise<EnvCheckResult>>()
+      .mockResolvedValue(
+        createEnvCheckResult({
+          ok: false,
+          depsOk: false,
+          missingItems: ["ffmpeg", "git"],
+          message: "Missing dependency ffmpeg and git.",
+        }),
+      );
+    const suggestEnvSetupCommands = vi
+      .fn<() => Promise<EnvSetupCommand[]>>()
+      .mockResolvedValue([
+        createEnvHint(),
+        createEnvHint({
+          title: "Install git",
+          command: "brew install git",
+        }),
+      ]);
+
+    const { container } = render(
+      <ScriptDetailPage
+        script={createScriptAsset()}
+        compact
+        deps={{
+          checkScriptEnv,
+          suggestEnvSetupCommands,
+          saveScriptMeta: vi.fn().mockResolvedValue({ saved: true }),
+          runScript: vi.fn<() => Promise<RunScriptData>>().mockResolvedValue(
+            createRunScriptData(),
+          ),
+          stopScript: vi.fn<() => Promise<{ stopped: boolean } | null>>(),
+          subscribeToExecutionEvents: vi.fn().mockResolvedValue(() => {}),
+        }}
+      />,
+    );
+
+    await screen.findByText("Install ffmpeg");
+
+    expect(container.querySelector(".detail-layout-compact")).not.toBeNull();
+
+    const suggestionsList = screen.getByRole("list", {
+      name: /install suggestions list/i,
+    });
+
+    expect(within(suggestionsList).getByText("Install ffmpeg")).toBeInTheDocument();
+    expect(within(suggestionsList).getByText("Install git")).toBeInTheDocument();
   });
 
   it("runs the selected script with current parameter values and default cwd", async () => {

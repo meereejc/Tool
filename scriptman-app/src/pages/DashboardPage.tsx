@@ -1,7 +1,10 @@
 import {
   Fragment,
+  useCallback,
   useDeferredValue,
   useEffect,
+  useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -28,6 +31,10 @@ interface DashboardPageProps {
 }
 
 const COL_COUNT = 7;
+const STATUS_SORT_ORDER: Record<ScriptAsset["status"], number> = {
+  Configured: 0,
+  PendingMeta: 1,
+};
 
 export default function DashboardPage({
   watchPaths,
@@ -41,8 +48,11 @@ export default function DashboardPage({
   detailDeps,
 }: DashboardPageProps) {
   const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null);
+  const expandedOnceRef = useRef(new Set<string>());
   const [filterQuery, setFilterQuery] = useState("");
-  const [sortMode, setSortMode] = useState<"path" | "name" | "language">("path");
+  const [sortMode, setSortMode] = useState<
+    "path" | "name" | "language" | "category" | "status"
+  >("path");
   const [watchPathValidationError, setWatchPathValidationError] = useState<
     string | null
   >(null);
@@ -69,53 +79,79 @@ export default function DashboardPage({
     (script.meta?.deps?.length ?? 0) > 0
       ? script.meta!.deps.join(", ")
       : "\u2014";
-  const filterScript = (script: ScriptAsset) => {
-    if (!normalizedQuery) {
-      return true;
-    }
+  const visibleScripts = useMemo(() => {
+    const allScripts = [...scanState.configuredScripts, ...scanState.pendingScripts];
 
-    const searchableFields = [
-      script.meta?.name,
-      script.meta?.desc,
-      script.fileName,
-      script.filePath,
-      script.language,
-      script.status,
-    ];
+    const filtered = normalizedQuery
+      ? allScripts.filter((script) => {
+          const searchableFields = [
+            script.meta?.name,
+            script.meta?.desc,
+            script.fileName,
+            script.filePath,
+            script.language,
+            script.status,
+          ];
+          return searchableFields.some((field) =>
+            field?.toLowerCase().includes(normalizedQuery),
+          );
+        })
+      : allScripts;
 
-    return searchableFields.some((field) =>
-      field?.toLowerCase().includes(normalizedQuery),
-    );
-  };
-  const compareScripts = (left: ScriptAsset, right: ScriptAsset) => {
-    if (sortMode === "name") {
-      return getScriptTitle(left).localeCompare(getScriptTitle(right));
-    }
+    return filtered.sort((left, right) => {
+      if (sortMode === "name") {
+        return getScriptTitle(left).localeCompare(getScriptTitle(right));
+      }
+      if (sortMode === "language") {
+        return (
+          left.language.localeCompare(right.language) ||
+          getScriptTitle(left).localeCompare(getScriptTitle(right))
+        );
+      }
+      if (sortMode === "category") {
+        return (
+          getScriptCategory(left).localeCompare(getScriptCategory(right)) ||
+          getScriptTitle(left).localeCompare(getScriptTitle(right))
+        );
+      }
+      if (sortMode === "status") {
+        return (
+          STATUS_SORT_ORDER[left.status] - STATUS_SORT_ORDER[right.status] ||
+          getScriptTitle(left).localeCompare(getScriptTitle(right))
+        );
+      }
+      return left.filePath.localeCompare(right.filePath);
+    });
+  }, [scanState.configuredScripts, scanState.pendingScripts, normalizedQuery, sortMode]);
 
-    if (sortMode === "language") {
-      return left.language.localeCompare(right.language) || getScriptTitle(left).localeCompare(getScriptTitle(right));
-    }
+  const visibleScriptIds = useMemo(
+    () => new Set(visibleScripts.map((s) => s.id)),
+    [visibleScripts],
+  );
 
-    return left.filePath.localeCompare(right.filePath);
-  };
-  const visibleScripts = [...scanState.configuredScripts, ...scanState.pendingScripts]
-    .filter(filterScript)
-    .sort(compareScripts);
   const selectedScript =
-    visibleScripts.find((item) => item.id === selectedScriptId) ?? visibleScripts[0] ?? null;
+    selectedScriptId == null
+      ? null
+      : visibleScripts.find((item) => item.id === selectedScriptId) ?? null;
 
   useEffect(() => {
-    if (visibleScripts.length === 0) {
-      if (selectedScriptId !== null) {
-        setSelectedScriptId(null);
-      }
-      return;
+    if (selectedScriptId !== null && !visibleScriptIds.has(selectedScriptId)) {
+      setSelectedScriptId(null);
     }
+  }, [visibleScriptIds, selectedScriptId]);
 
-    if (!visibleScripts.some((item) => item.id === selectedScriptId)) {
-      setSelectedScriptId(visibleScripts[0].id);
-    }
-  }, [visibleScripts, selectedScriptId]);
+  const toggleScript = useCallback((scriptId: string) => {
+    setSelectedScriptId((current) => {
+      if (current === scriptId) return null;
+      expandedOnceRef.current.add(scriptId);
+      return scriptId;
+    });
+  }, []);
+
+  const handleMetaSaved = useCallback(async () => {
+    await scanStore.scan({ paths: watchPaths });
+  }, [scanStore, watchPaths]);
+
   const scanButtonLabel =
     scanState.status === "scanning"
       ? "Scanning..."
@@ -244,12 +280,21 @@ export default function DashboardPage({
                 className="select-input"
                 value={sortMode}
                 onChange={(event) => {
-                  setSortMode(event.target.value as "path" | "name" | "language");
+                  setSortMode(
+                    event.target.value as
+                      | "path"
+                      | "name"
+                      | "language"
+                      | "category"
+                      | "status",
+                  );
                 }}
               >
                 <option value="path">Path</option>
                 <option value="name">Name</option>
                 <option value="language">Language</option>
+                <option value="category">Category</option>
+                <option value="status">Status</option>
               </select>
             </div>
           </div>
@@ -278,6 +323,7 @@ export default function DashboardPage({
                   const title = getScriptTitle(script);
                   const description = getScriptDescription(script);
                   const isSelected = selectedScript?.id === script.id;
+                  const wasExpandedBefore = expandedOnceRef.current.has(script.id);
                   const actionLabel = script.status === "PendingMeta" ? "\u8865\u5168" : "\u67E5\u770B";
 
                   return (
@@ -285,7 +331,7 @@ export default function DashboardPage({
                       <tr
                         className={`inventory-row${isSelected ? " inventory-row-selected" : ""}`}
                         onClick={() => {
-                          setSelectedScriptId(script.id);
+                          toggleScript(script.id);
                         }}
                       >
                         <td>
@@ -325,15 +371,18 @@ export default function DashboardPage({
                             className="table-link-button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setSelectedScriptId(script.id);
+                              toggleScript(script.id);
                             }}
                           >
                             {actionLabel}
                           </button>
                         </td>
                       </tr>
-                      {isSelected ? (
-                        <tr className="detail-expand-row">
+                      {(isSelected || wasExpandedBefore) ? (
+                        <tr
+                          className="detail-expand-row"
+                          style={isSelected ? undefined : { display: "none" }}
+                        >
                           <td colSpan={COL_COUNT}>
                             <div className="detail-expand-content">
                               <ScriptDetailPage
@@ -341,9 +390,7 @@ export default function DashboardPage({
                                 defaultCwd={defaultCwd}
                                 compact
                                 deps={detailDeps}
-                                onMetaSaved={async () => {
-                                  await scanStore.scan({ paths: watchPaths });
-                                }}
+                                onMetaSaved={handleMetaSaved}
                               />
                             </div>
                           </td>

@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 
 import EnvBadge from "../components/EnvBadge";
 import EnvHintPanel from "../components/EnvHintPanel";
@@ -48,6 +48,26 @@ const defaultDeps: ScriptDetailPageDeps = {
   stopScript,
   subscribeToExecutionEvents,
 };
+
+interface CachedEnvState {
+  envStatus: EnvCheckResult | null;
+  envSuggestions: EnvSetupCommand[];
+  envError: string | null;
+}
+
+const scriptEnvStateCache = new Map<string, CachedEnvState>();
+
+function readCachedEnvState(scriptPath: string): CachedEnvState | null {
+  return scriptEnvStateCache.get(scriptPath) ?? null;
+}
+
+function writeCachedEnvState(scriptPath: string, value: CachedEnvState) {
+  scriptEnvStateCache.set(scriptPath, value);
+}
+
+export function __resetScriptDetailEnvCacheForTests() {
+  scriptEnvStateCache.clear();
+}
 
 function buildInitialParamValues(script: ScriptAsset): ParamValueMap {
   const values: ParamValueMap = {};
@@ -139,16 +159,24 @@ export default function ScriptDetailPage({
   deps = defaultDeps,
   onMetaSaved,
 }: ScriptDetailPageProps) {
+  const initialCachedEnvState = readCachedEnvState(script.filePath);
+  const hasMountedRef = useRef(false);
   const [paramValues, setParamValues] = useState<ParamValueMap>(() =>
     buildInitialParamValues(script),
   );
   const [pendingMetaDraft, setPendingMetaDraft] = useState<PendingMetaDraft>(() =>
     buildInitialPendingMetaDraft(script),
   );
-  const [envStatus, setEnvStatus] = useState<EnvCheckResult | null>(null);
-  const [envLoading, setEnvLoading] = useState(false);
-  const [envSuggestions, setEnvSuggestions] = useState<EnvSetupCommand[]>([]);
-  const [envError, setEnvError] = useState<string | null>(null);
+  const [envStatus, setEnvStatus] = useState<EnvCheckResult | null>(
+    () => initialCachedEnvState?.envStatus ?? null,
+  );
+  const [envLoading, setEnvLoading] = useState(() => initialCachedEnvState == null);
+  const [envSuggestions, setEnvSuggestions] = useState<EnvSetupCommand[]>(
+    () => initialCachedEnvState?.envSuggestions ?? [],
+  );
+  const [envError, setEnvError] = useState<string | null>(
+    () => initialCachedEnvState?.envError ?? null,
+  );
   const [runError, setRunError] = useState<string | null>(null);
   const [metaSaveError, setMetaSaveError] = useState<string | null>(null);
   const [metaSaveSuccess, setMetaSaveSuccess] = useState<string | null>(null);
@@ -159,11 +187,19 @@ export default function ScriptDetailPage({
   const [running, setRunning] = useState(false);
 
   useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+
+    const cachedEnvState = readCachedEnvState(script.filePath);
+
     setParamValues(buildInitialParamValues(script));
     setPendingMetaDraft(buildInitialPendingMetaDraft(script));
-    setEnvStatus(null);
-    setEnvSuggestions([]);
-    setEnvError(null);
+    setEnvStatus(cachedEnvState?.envStatus ?? null);
+    setEnvLoading(cachedEnvState == null);
+    setEnvSuggestions(cachedEnvState?.envSuggestions ?? []);
+    setEnvError(cachedEnvState?.envError ?? null);
     setRunError(null);
     setMetaSaveError(null);
     setMetaSaveSuccess(null);
@@ -175,6 +211,11 @@ export default function ScriptDetailPage({
   }, [script]);
 
   useEffect(() => {
+    const cachedEnvState = readCachedEnvState(script.filePath);
+    if (cachedEnvState) {
+      return;
+    }
+
     let cancelled = false;
 
     const loadEnvironment = async () => {
@@ -187,27 +228,39 @@ export default function ScriptDetailPage({
           return;
         }
 
-        setEnvStatus(result);
+        const suggestions =
+          !result.ok && result.missingItems.length > 0
+            ? await deps.suggestEnvSetupCommands({
+                scriptPath: script.filePath,
+                missingItems: result.missingItems,
+              })
+            : [];
 
-        if (!result.ok && result.missingItems.length > 0) {
-          const suggestions = await deps.suggestEnvSetupCommands({
-            scriptPath: script.filePath,
-            missingItems: result.missingItems,
-          });
-
-          if (!cancelled) {
-            setEnvSuggestions(suggestions);
-          }
-        } else if (!cancelled) {
-          setEnvSuggestions([]);
+        if (cancelled) {
+          return;
         }
+
+        writeCachedEnvState(script.filePath, {
+          envStatus: result,
+          envSuggestions: suggestions,
+          envError: null,
+        });
+        setEnvStatus(result);
+        setEnvSuggestions(suggestions);
       } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to check the script environment.";
+
+        writeCachedEnvState(script.filePath, {
+          envStatus: null,
+          envSuggestions: [],
+          envError: message,
+        });
+
         if (!cancelled) {
-          setEnvError(
-            error instanceof Error
-              ? error.message
-              : "Failed to check the script environment.",
-          );
+          setEnvError(message);
           setEnvSuggestions([]);
         }
       } finally {
@@ -278,6 +331,8 @@ export default function ScriptDetailPage({
       ? script.meta.deps.join(", ")
       : "None";
   const params = script.meta?.params ?? [];
+  const detailLayoutClassName = `detail-layout${compact ? " detail-layout-compact" : ""}`;
+  const detailCardClassName = `detail-card${compact ? " detail-card-compact" : ""}`;
 
   const handleRun = async () => {
     setRunError(null);
@@ -291,22 +346,36 @@ export default function ScriptDetailPage({
     }
 
     const latestEnv = await deps.checkScriptEnv(script.filePath);
+    setEnvError(null);
     setEnvStatus(latestEnv);
 
     if (!latestEnv.ok) {
       setRunError(latestEnv.message ?? "Environment check failed.");
 
-      if (latestEnv.missingItems.length > 0) {
-        const suggestions = await deps.suggestEnvSetupCommands({
-          scriptPath: script.filePath,
-          missingItems: latestEnv.missingItems,
-        });
-        setEnvSuggestions(suggestions);
-      }
+      const suggestions =
+        latestEnv.missingItems.length > 0
+          ? await deps.suggestEnvSetupCommands({
+              scriptPath: script.filePath,
+              missingItems: latestEnv.missingItems,
+            })
+          : [];
+
+      writeCachedEnvState(script.filePath, {
+        envStatus: latestEnv,
+        envSuggestions: suggestions,
+        envError: null,
+      });
+      setEnvSuggestions(suggestions);
 
       return;
     }
 
+    writeCachedEnvState(script.filePath, {
+      envStatus: latestEnv,
+      envSuggestions: [],
+      envError: null,
+    });
+    setEnvSuggestions([]);
     setLogs([]);
     const result = await deps.runScript({
       scriptPath: script.filePath,
@@ -368,8 +437,8 @@ export default function ScriptDetailPage({
   };
 
   return (
-    <div className="detail-layout">
-      <section className="detail-card">
+    <div className={detailLayoutClassName}>
+      <section className={detailCardClassName}>
         {!compact ? (
           <>
             <p className="eyebrow">Script detail</p>
@@ -418,11 +487,15 @@ export default function ScriptDetailPage({
           </>
         ) : null}
 
-        {script.meta?.inputHint ? (
-          <p className="io-hint io-hint-input">{script.meta.inputHint}</p>
-        ) : null}
-        {script.meta?.outputHint ? (
-          <p className="io-hint io-hint-output">{script.meta.outputHint}</p>
+        {script.meta?.inputHint || script.meta?.outputHint ? (
+          <div className="detail-hint-stack">
+            {script.meta?.inputHint ? (
+              <p className="io-hint io-hint-input">{script.meta.inputHint}</p>
+            ) : null}
+            {script.meta?.outputHint ? (
+              <p className="io-hint io-hint-output">{script.meta.outputHint}</p>
+            ) : null}
+          </div>
         ) : null}
 
         {script.status === "PendingMeta" ? (

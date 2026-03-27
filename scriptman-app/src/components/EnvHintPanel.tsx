@@ -22,10 +22,13 @@ export default function EnvHintPanel({ commands }: EnvHintPanelProps) {
       <div className="section-header">
         <h3>Install suggestions</h3>
       </div>
-      <div className="env-command-list">
+      <ul
+        className="env-command-list"
+        aria-label="Install suggestions list"
+      >
         {commands.map((item) => (
-          <article key={`${item.title}-${item.command}`} className="env-command-card">
-            <strong>{item.title}</strong>
+          <li key={`${item.title}-${item.command}`} className="env-command-item">
+            <strong className="env-command-title">{item.title}</strong>
             {item.note ? <p className="message">{item.note}</p> : null}
             <code>{item.command}</code>
             <div className="action-row">
@@ -42,9 +45,9 @@ export default function EnvHintPanel({ commands }: EnvHintPanelProps) {
                 <span className="param-intent">May need admin</span>
               ) : null}
             </div>
-          </article>
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }
