@@ -148,6 +148,69 @@ identifier 为 `com.scriptman.app` 的前提下，macOS 路径为：
   - `ignoredCount`
   - `errors`
 
+## 脚本元数据说明
+
+这里的“元数据”指的是写在脚本头部注释里的 `@sm:` 信息块。扫描器会读取
+脚本前 50 行内的第一个有效 `@sm` 块，并把这些信息解析成脚本的展示信息、
+环境检查依据和参数定义。
+
+当前代码中支持识别的元数据字段如下：
+
+- `@sm:name`
+  - 脚本显示名称
+- `@sm:category`
+  - 脚本分类，例如 `utility`、`media`、`build`
+- `@sm:desc`
+  - 脚本描述
+- `@sm:platform`
+  - 适用平台，例如 `macos`、`linux`、`windows`
+- `@sm:runtime`
+  - 运行时标识，例如 `python3`、`node`、`bash`
+- `@sm:dep`
+  - 依赖项，可重复声明多次
+- `@sm:input`
+  - 输入说明，用于补充脚本处理的输入含义
+- `@sm:output`
+  - 输出说明，用于补充脚本产出的结果含义
+- `@sm:param`
+  - 参数定义，格式为：
+    `参数名 | 值类型 | required/optional | 参数说明`
+- `@sm:default`
+  - 参数默认值，格式为：
+    `参数名 | 默认值`
+
+一个示例：
+
+```python
+#!/usr/bin/env python3
+# @sm:name Resize Images
+# @sm:category media
+# @sm:desc Batch resize local images.
+# @sm:platform macos
+# @sm:runtime python3
+# @sm:dep pillow
+# @sm:input Source image directory
+# @sm:output Resized images in the target directory
+# @sm:param --input | path | required | Input directory
+# @sm:param --width | number | optional | Target width
+# @sm:default --width | 1920
+print("ok")
+```
+
+需要注意两点：
+
+- 扫描器可以解析上面全部字段，但当前“PendingMeta 补全”界面实际只会回写
+  最小字段集合：`name`、`desc`、`category`、`platform`、`runtime`、
+  `dep`
+- 当前界面不会直接回写 `input`、`output`、`param`、`default`；这些字段
+  目前主要依赖脚本作者手工写在脚本头部
+
+也就是说：
+
+- `PendingMeta` 表示脚本还缺少最基本的可识别元数据
+- 至少补齐 `name` 和 `desc` 后，脚本就可以从 `PendingMeta` 转为
+  `Configured`
+
 ## 元数据解析约束
 
 - `@sm` 解析只读取脚本前 50 行
