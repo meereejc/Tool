@@ -1061,10 +1061,23 @@ h3 {
   color: var(--text-primary);
 }
 
-.env-command-item code {
+.env-command-block {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.env-command-block code {
+  display: block;
   font-family: "SFMono-Regular", "Menlo", monospace;
   font-size: 0.84rem;
+  line-height: 1.55;
+  color: #e2e8f0;
 }
 
 .detail-layout-compact .section-header {
@@ -1139,11 +1152,11 @@ h3 {
   border-radius: 12px;
 }
 
-.detail-layout-compact .env-command-item .message {
-  font-size: 0.84rem;
+.detail-layout-compact .env-command-block {
+  padding: 0.65rem 0.75rem;
 }
 
-.detail-layout-compact .env-command-item code {
+.detail-layout-compact .env-command-block code {
   font-size: 0.8rem;
 }
 

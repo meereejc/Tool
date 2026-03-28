@@ -4,12 +4,16 @@ interface EnvHintPanelProps {
   commands: EnvSetupCommand[];
 }
 
-async function copyCommand(command: string) {
+function buildCommandBlock(note: string | undefined, command: string) {
+  return [note?.trim(), command.trim()].filter(Boolean).join("\n");
+}
+
+async function copyCommand(commandBlock: string) {
   if (typeof navigator === "undefined" || !navigator.clipboard) {
     return;
   }
 
-  await navigator.clipboard.writeText(command);
+  await navigator.clipboard.writeText(commandBlock);
 }
 
 export default function EnvHintPanel({ commands }: EnvHintPanelProps) {
@@ -29,14 +33,15 @@ export default function EnvHintPanel({ commands }: EnvHintPanelProps) {
         {commands.map((item) => (
           <li key={`${item.title}-${item.command}`} className="env-command-item">
             <strong className="env-command-title">{item.title}</strong>
-            {item.note ? <p className="message">{item.note}</p> : null}
-            <code>{item.command}</code>
+            <pre className="env-command-block">
+              <code>{buildCommandBlock(item.note, item.command)}</code>
+            </pre>
             <div className="action-row">
               <button
                 type="button"
                 className="button button-secondary"
                 onClick={() => {
-                  void copyCommand(item.command);
+                  void copyCommand(buildCommandBlock(item.note, item.command));
                 }}
               >
                 Copy command

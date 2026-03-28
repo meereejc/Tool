@@ -2,6 +2,7 @@ use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::core::meta_parser::parse_script_meta;
 use crate::core::types::{EnvCheckResult, EnvSetupCommand, ScriptMeta};
@@ -45,20 +46,28 @@ pub fn check_script_env(script_path: &Path) -> Result<EnvCheckResult, EnvCheckEr
         EnvCheckError::new(format!("Failed to read script {}: {error}", script_path.display()))
     })?;
 
-    check_script_env_with_resolver(script_path, &content, &command_exists)
+    check_script_env_with_probes(script_path, &content, &command_exists, &python_package_exists)
 }
 
 pub fn suggest_env_setup_commands(
-    _script_path: &Path,
+    script_path: &Path,
     missing_items: &[String],
 ) -> Result<Vec<EnvSetupCommand>, EnvCheckError> {
     if missing_items.is_empty() {
         return Ok(Vec::new());
     }
 
-    Ok(suggest_env_setup_commands_for_platform(
+    let context = load_script_runtime_context(script_path)?;
+
+    Ok(suggest_env_setup_commands_for_context(
         missing_items,
         current_platform(),
+        &context.runtime_command,
+        context
+            .meta
+            .as_ref()
+            .map(|meta| meta.deps.as_slice())
+            .unwrap_or(&[]),
     ))
 }
 
@@ -70,10 +79,20 @@ pub fn load_script_runtime_context(script_path: &Path) -> Result<ScriptRuntimeCo
     build_script_runtime_context(script_path, &content)
 }
 
+#[cfg(test)]
 pub(crate) fn check_script_env_with_resolver(
     script_path: &Path,
     content: &str,
     command_exists: &impl Fn(&str) -> bool,
+) -> Result<EnvCheckResult, EnvCheckError> {
+    check_script_env_with_probes(script_path, content, command_exists, &|_, _| false)
+}
+
+pub(crate) fn check_script_env_with_probes(
+    script_path: &Path,
+    content: &str,
+    command_exists: &impl Fn(&str) -> bool,
+    python_package_exists: &impl Fn(&str, &str) -> bool,
 ) -> Result<EnvCheckResult, EnvCheckError> {
     let context = build_script_runtime_context(script_path, content)?;
     let permission_problem = detect_permission_problem(script_path, &context.runtime_command);
@@ -84,11 +103,20 @@ pub(crate) fn check_script_env_with_resolver(
     let deps = context
         .meta
         .as_ref()
-        .map(|meta| meta.deps.clone())
-        .unwrap_or_default();
+        .map(|meta| meta.deps.as_slice())
+        .unwrap_or(&[]);
     let missing_deps = deps
-        .into_iter()
-        .filter(|item| !command_exists(item))
+        .iter()
+        .map(|dep| parse_dependency_spec(dep))
+        .filter(|dep| {
+            !dependency_is_available(
+                dep,
+                &context.runtime_command,
+                command_exists,
+                python_package_exists,
+            )
+        })
+        .map(|dep| dep.name)
         .collect::<Vec<_>>();
     let deps_ok = missing_deps.is_empty();
 
@@ -120,13 +148,38 @@ pub(crate) fn check_script_env_with_resolver(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn suggest_env_setup_commands_for_platform(
     missing_items: &[String],
     platform: PlatformKind,
 ) -> Vec<EnvSetupCommand> {
+    suggest_env_setup_commands_for_context(missing_items, platform, "", &[])
+}
+
+pub(crate) fn suggest_env_setup_commands_for_context(
+    missing_items: &[String],
+    platform: PlatformKind,
+    runtime_command: &str,
+    declared_deps: &[String],
+) -> Vec<EnvSetupCommand> {
     missing_items
         .iter()
-        .map(|item| map_env_command(item, platform))
+        .map(|item| {
+            let dependency = declared_deps
+                .iter()
+                .map(|dep| parse_dependency_spec(dep))
+                .find(|dep| dep.name == *item)
+                .map(|dep| {
+                    if dep.kind == DependencyKind::Auto {
+                        infer_dependency_spec(&dep.name, runtime_command)
+                    } else {
+                        dep
+                    }
+                })
+                .unwrap_or_else(|| infer_dependency_spec(item, runtime_command));
+
+            map_env_command(&dependency, platform, runtime_command)
+        })
         .collect()
 }
 
@@ -252,6 +305,63 @@ fn current_platform() -> PlatformKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DependencyKind {
+    Auto,
+    Command,
+    PythonPackage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DependencySpec {
+    name: String,
+    kind: DependencyKind,
+}
+
+fn parse_dependency_spec(raw: &str) -> DependencySpec {
+    let trimmed = raw.trim();
+    let lower = trimmed.to_ascii_lowercase();
+
+    for prefix in ["pip:", "python:", "py:"] {
+        if lower.starts_with(prefix) {
+            return DependencySpec {
+                name: trimmed[prefix.len()..].trim().to_string(),
+                kind: DependencyKind::PythonPackage,
+            };
+        }
+    }
+
+    for prefix in ["cmd:", "command:"] {
+        if lower.starts_with(prefix) {
+            return DependencySpec {
+                name: trimmed[prefix.len()..].trim().to_string(),
+                kind: DependencyKind::Command,
+            };
+        }
+    }
+
+    DependencySpec {
+        name: trimmed.to_string(),
+        kind: DependencyKind::Auto,
+    }
+}
+
+fn infer_dependency_spec(item: &str, runtime_command: &str) -> DependencySpec {
+    let parsed = parse_dependency_spec(item);
+    if parsed.kind != DependencyKind::Auto {
+        return parsed;
+    }
+
+    if is_python_runtime(runtime_command) && looks_like_python_package_name(&parsed.name) {
+        return DependencySpec {
+            kind: DependencyKind::PythonPackage,
+            ..parsed
+        };
+    }
+
+    parsed
+}
+
 fn command_exists(command: &str) -> bool {
     if command.contains(std::path::MAIN_SEPARATOR) {
         return Path::new(command).is_file();
@@ -269,6 +379,35 @@ fn command_exists(command: &str) -> bool {
             candidate.is_file()
         })
     })
+}
+
+fn dependency_is_available(
+    dependency: &DependencySpec,
+    runtime_command: &str,
+    command_exists: &impl Fn(&str) -> bool,
+    python_package_exists: &impl Fn(&str, &str) -> bool,
+) -> bool {
+    match dependency.kind {
+        DependencyKind::Command => command_exists(&dependency.name),
+        DependencyKind::PythonPackage => python_package_exists(runtime_command, &dependency.name),
+        DependencyKind::Auto => {
+            command_exists(&dependency.name)
+                || (is_python_runtime(runtime_command)
+                    && python_package_exists(runtime_command, &dependency.name))
+        }
+    }
+}
+
+fn python_package_exists(runtime_command: &str, package_name: &str) -> bool {
+    if !is_python_runtime(runtime_command) {
+        return false;
+    }
+
+    Command::new(runtime_command)
+        .args(["-m", "pip", "show", package_name])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn executable_suffixes(command: &str) -> Vec<OsString> {
@@ -295,6 +434,19 @@ fn build_candidate_path(directory: &Path, command: &str, suffix: &OsString) -> P
 
 fn is_shell_runtime(runtime_command: &str) -> bool {
     matches!(runtime_command, "sh" | "bash" | "zsh")
+}
+
+fn is_python_runtime(runtime_command: &str) -> bool {
+    runtime_command
+        .rsplit(std::path::MAIN_SEPARATOR)
+        .next()
+        .unwrap_or(runtime_command)
+        .to_ascii_lowercase()
+        .contains("python")
+}
+
+fn looks_like_python_package_name(name: &str) -> bool {
+    name.contains('-') || name.contains('.')
 }
 
 #[cfg(unix)]
@@ -337,9 +489,31 @@ fn platform_label(platform: PlatformKind) -> &'static str {
     }
 }
 
-fn map_env_command(item: &str, platform: PlatformKind) -> EnvSetupCommand {
+fn map_env_command(
+    dependency: &DependencySpec,
+    platform: PlatformKind,
+    runtime_command: &str,
+) -> EnvSetupCommand {
+    if dependency.kind == DependencyKind::PythonPackage {
+        let runtime = if runtime_command.trim().is_empty() {
+            "python3"
+        } else {
+            runtime_command
+        };
+
+        return EnvSetupCommand {
+            title: format!("Install Python package {}", dependency.name),
+            command: format!("{runtime} -m pip install {}", dependency.name),
+            requires_privilege: None,
+            note: Some(
+                "Install this package into the same Python environment that ScriptMan uses to run the script."
+                    .to_string(),
+            ),
+        };
+    }
+
     match platform {
-        PlatformKind::Macos => match normalize_missing_item(item).as_str() {
+        PlatformKind::Macos => match normalize_missing_item(&dependency.name).as_str() {
             "python3" | "python" => command_hint("Install python", "brew install python", false),
             "node" | "nodejs" => command_hint("Install node", "brew install node", false),
             "bash" => command_hint("Install bash", "brew install bash", false),
@@ -350,7 +524,7 @@ fn map_env_command(item: &str, platform: PlatformKind) -> EnvSetupCommand {
                 false,
             ),
         },
-        PlatformKind::Linux => match normalize_missing_item(item).as_str() {
+        PlatformKind::Linux => match normalize_missing_item(&dependency.name).as_str() {
             "python3" | "python" => {
                 command_hint("Install python3", "sudo apt-get install -y python3", true)
             }
@@ -365,7 +539,7 @@ fn map_env_command(item: &str, platform: PlatformKind) -> EnvSetupCommand {
                 true,
             ),
         },
-        PlatformKind::Windows => match normalize_missing_item(item).as_str() {
+        PlatformKind::Windows => match normalize_missing_item(&dependency.name).as_str() {
             "python3" | "python" => {
                 command_hint("Install python", "winget install Python.Python.3", false)
             }
@@ -420,6 +594,27 @@ mod tests {
     }
 
     #[test]
+    fn check_script_env_accepts_installed_python_package_dependencies() {
+        let temp_dir = tempdir().unwrap();
+        let script_path = temp_dir.path().join("demo.py");
+        let content = "#!/usr/bin/env python3\n# @sm:dep opencv-python\nprint('ok')\n";
+        fs::write(&script_path, content).unwrap();
+
+        let result = check_script_env_with_probes(
+            &script_path,
+            content,
+            &|command| command == "python3",
+            &|runtime, package| runtime == "python3" && package == "opencv-python",
+        )
+        .unwrap();
+
+        assert!(result.ok);
+        assert!(result.runtime_ok);
+        assert!(result.deps_ok);
+        assert!(result.missing_items.is_empty());
+    }
+
+    #[test]
     fn suggest_env_setup_commands_returns_platform_specific_commands() {
         let commands = suggest_env_setup_commands_for_platform(
             &["ffmpeg".to_string(), "python3".to_string()],
@@ -429,6 +624,39 @@ mod tests {
         assert_eq!(commands.len(), 2);
         assert_eq!(commands[0].command, "brew install ffmpeg");
         assert_eq!(commands[1].command, "brew install python");
+    }
+
+    #[test]
+    fn suggest_env_setup_commands_prefers_pip_for_python_package_dependencies() {
+        let temp_dir = tempdir().unwrap();
+        let script_path = temp_dir.path().join("demo.py");
+        let content = "#!/usr/bin/env python3\n# @sm:dep opencv-python\nprint('ok')\n";
+        fs::write(&script_path, content).unwrap();
+
+        let commands =
+            suggest_env_setup_commands(&script_path, &["opencv-python".to_string()]).unwrap();
+
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].title, "Install Python package opencv-python");
+        assert_eq!(commands[0].command, "python3 -m pip install opencv-python");
+        assert!(commands[0]
+            .note
+            .as_deref()
+            .unwrap_or_default()
+            .contains("same Python environment"));
+    }
+
+    #[test]
+    fn suggest_env_setup_commands_supports_explicit_command_prefix() {
+        let commands = suggest_env_setup_commands_for_context(
+            &["ffmpeg".to_string()],
+            PlatformKind::Macos,
+            "python3",
+            &["cmd:ffmpeg".to_string()],
+        );
+
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].command, "brew install ffmpeg");
     }
 
     #[test]
