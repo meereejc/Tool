@@ -90,6 +90,9 @@ starts the frontend dev server only.
   - right-side inspector for script details
   - parameter input, environment checks, suggested install commands, run/stop,
     and streamed logs
+- Install suggestions now render environment notes and commands inside one code
+  block, and `Copy command` copies the full block content instead of only the
+  last command line.
 - `PendingMeta` scripts can now be completed inside the inspector with a small
   local form. Saving writes a minimal `@sm` block back into the script header
   and refreshes the scan result.
@@ -121,11 +124,28 @@ starts the frontend dev server only.
   transition away from larger product plans. They should be treated as legacy,
   not as future roadmap commitments.
 
-## Scan Verification Notes
+## Metadata and Dependency Notes
 
 - `@sm` parsing only reads the first 50 lines of a script.
 - Only the first valid `@sm` block is parsed.
 - Invalid single `@sm` lines are ignored without aborting the whole script.
+- `@sm:dep` is used by the environment checker.
+- Command-line dependencies can be written directly, for example:
+  - `@sm:dep ffmpeg`
+  - `@sm:dep cmd:ffmpeg`
+- Python package dependencies can now be declared in either of these forms:
+  - `@sm:dep opencv-python`
+  - `@sm:dep py:opencv-python`
+  - `@sm:dep pip:opencv-python`
+- For Python scripts, ScriptMan checks Python package dependencies against the
+  same interpreter it uses to run the script and generates install suggestions
+  such as `python3 -m pip install opencv-python`.
+- If a package is installed in a different virtual environment, Conda
+  environment, or Python interpreter than the one ScriptMan resolves for the
+  script, the app can still correctly report that dependency as missing.
+
+## Scan Verification Notes
+
 - Manual verification of `scan_directories` through the running Tauri app is
   still limited by the current sandboxed environment.
 
