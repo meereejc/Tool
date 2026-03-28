@@ -77,12 +77,28 @@ npm run dev
 ```
 
 这条命令会自动安装 `scriptman-app` 依赖并启动完整的 Tauri 开发流程。
+在当前环境下，它还会自动把 `/opt/homebrew/opt/rustup/bin` 加进 `PATH`，
+这样就不用先手工执行 `export PATH=...` 来让 `cargo` 生效。
 
 如果你只想启动前端开发服务器，可以在仓库根目录运行：
 
 ```bash
 npm run dev:web
 ```
+
+在 `scriptman-app` 目录内，现在也使用同样的命令语义：
+
+```bash
+npm run dev
+```
+
+表示启动完整的 Tauri 桌面应用，而：
+
+```bash
+npm run dev:web
+```
+
+表示只启动前端开发服务器。
 
 先进入项目目录：
 
@@ -99,7 +115,7 @@ npm install
 只运行前端开发环境：
 
 ```bash
-npm run dev
+npm run dev:web
 ```
 
 构建前端：
@@ -131,7 +147,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 启动 Tauri 开发流程：
 
 ```bash
-npm run tauri -- dev
+npm run dev
 ```
 
 ## 配置与扫描规则
@@ -246,5 +262,5 @@ print("ok")
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 ```
 
-- 在受限或沙箱环境里，`npm run tauri -- dev` 可能会因为 Vite 本地端口
+- 在受限或沙箱环境里，`npm run dev` 可能会因为 Vite 本地端口
   绑定失败而无法启动

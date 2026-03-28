@@ -27,7 +27,7 @@ export interface ConfigStore {
   save: (config: AppConfig) => Promise<void>;
   pickDirectories: (multiple?: boolean) => Promise<string[]>;
   addWatchPaths: (paths: string[]) => void;
-  removeWatchPath: (path: string) => void;
+  removeWatchPath: (path: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -65,8 +65,9 @@ export function createConfigStore(
     emit();
   };
 
-  const syncConfig = (config: AppConfig) => {
+  const syncConfig = (config: AppConfig, next: Partial<ConfigStoreState> = {}) => {
     setState({
+      ...next,
       config,
       needsOnboarding: needsOnboarding(config),
     });
@@ -155,11 +156,33 @@ export function createConfigStore(
         watchPaths: merged,
       });
     },
-    removeWatchPath(path) {
-      syncConfig({
+    async removeWatchPath(path) {
+      const nextConfig = {
         ...state.config,
         watchPaths: state.config.watchPaths.filter((item) => item !== path),
+      };
+
+      if (nextConfig.watchPaths.length === state.config.watchPaths.length) {
+        return;
+      }
+
+      const previousConfig = state.config;
+      syncConfig(nextConfig, {
+        saving: true,
+        error: null,
       });
+
+      try {
+        await deps.saveConfig(nextConfig);
+        syncConfig(nextConfig, {
+          saving: false,
+        });
+      } catch (error) {
+        syncConfig(previousConfig, {
+          saving: false,
+          error: error instanceof Error ? error.message : "Failed to save config.",
+        });
+      }
     },
     clearError() {
       setState({ error: null });

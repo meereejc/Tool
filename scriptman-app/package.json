@@ -5,11 +5,12 @@
   "description": "ScriptMan desktop app",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "npm run tauri -- dev",
+    "dev:web": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "node ./run-tauri.js"
   },
   "dependencies": {
     "react": "^19.1.0",

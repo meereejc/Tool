@@ -32,7 +32,9 @@ npm run dev
 ```
 
 This installs the `scriptman-app` dependencies and starts the Tauri development
-flow.
+flow. In this environment, the root command also prepends
+`/opt/homebrew/opt/rustup/bin` so `cargo` can be found without a manual
+`export PATH=...`.
 
 If you only want the frontend dev server from the repository root, run:
 
@@ -40,10 +42,24 @@ If you only want the frontend dev server from the repository root, run:
 npm run dev:web
 ```
 
+Inside `scriptman-app` itself, the commands now use the same meaning:
+
+```bash
+npm run dev
+```
+
+Starts the full Tauri app, while:
+
+```bash
+npm run dev:web
+```
+
+starts the frontend dev server only.
+
 - Install dependencies:
   - `npm install`
 - Run the frontend only:
-  - `npm run dev`
+  - `npm run dev:web`
 - Build the frontend:
   - `npm run build`
 - Run frontend tests:
@@ -53,7 +69,7 @@ npm run dev:web
 - Run Rust tests:
   - `export PATH="/opt/homebrew/opt/rustup/bin:$PATH" && cargo test --manifest-path src-tauri/Cargo.toml`
 - Start the Tauri development flow:
-  - `npm run tauri -- dev`
+  - `npm run dev`
 
 ## Current App Behavior
 
@@ -125,4 +141,4 @@ npm run dev:web
 - In this environment, Rust is installed through Homebrew `rustup`, so
   `cargo`/`rustc` may require:
   `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`
-- `npm run tauri -- dev` can fail in constrained or sandboxed environments if the Vite dev server cannot bind to its local port.
+- `npm run dev` can fail in constrained or sandboxed environments if the Vite dev server cannot bind to its local port.

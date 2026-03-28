@@ -59,8 +59,12 @@ fn resolve_config_store(app: &AppHandle) -> Result<ConfigStore, (&'static str, &
 }
 
 fn validate_watch_paths(config: &AppConfig) -> Result<(), &'static str> {
-    if config.watch_paths.is_empty() {
-        return Err("At least one watch path is required.");
+    if config
+        .watch_paths
+        .iter()
+        .any(|path| path.trim().is_empty())
+    {
+        return Err("Watch paths cannot be empty strings.");
     }
 
     Ok(())
@@ -73,12 +77,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn save_config_rejects_empty_watch_paths() {
+    fn save_config_accepts_empty_watch_paths() {
         let config = AppConfig::default();
 
         let result = validate_watch_paths(&config);
 
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -91,5 +95,17 @@ mod tests {
         let result = validate_watch_paths(&config);
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn save_config_rejects_blank_watch_path_entries() {
+        let config = AppConfig {
+            watch_paths: vec!["/a".into(), "   ".into()],
+            ..AppConfig::default()
+        };
+
+        let result = validate_watch_paths(&config);
+
+        assert!(result.is_err());
     }
 }
